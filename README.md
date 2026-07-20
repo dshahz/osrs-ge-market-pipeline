@@ -61,7 +61,7 @@ flowchart LR
 
 - [x] Architecture & data-flow design
 - [x] Source API analysis + fact-table grain decision
-- [ ] Bronze ingestion (raw, append-only)
+- [x] Bronze ingestion (raw, append-only)
 - [ ] Silver (dedup, quality checks, DLQ + quarantine)
 - [ ] Gold (dbt models + flip-opportunity metrics)
 - [ ] Airflow DAG orchestration
