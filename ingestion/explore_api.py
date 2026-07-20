@@ -22,5 +22,7 @@ def fetch_endpoint(url, headers, timeout=10):
         return None
 
 
-latest = fetch_endpoint(url_latest, HEADERS)
-five_minute = fetch_endpoint(url_5m, HEADERS)
+
+if __name__ == "__main__":
+    latest = fetch_endpoint(url_latest, HEADERS)
+    five_minute = fetch_endpoint(url_5m, HEADERS)
