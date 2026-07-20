@@ -40,7 +40,7 @@ flowchart LR
 ## Key Design Decisions
 
 - **Idempotent ingestion** — Bronze→Silver loads use Delta `MERGE` keyed on
-  (item_id, interval_timestamp) so re-runs never duplicate or corrupt state; the
+  (item_id, window_timestamp) so re-runs never duplicate or corrupt state; the
   pipeline is safe to retry.
 - **Dead-letter queue** — records failing schema/quality checks route to a DLQ table
   rather than silently dropping or failing the batch, keeping ingestion resilient and
@@ -55,11 +55,12 @@ flowchart LR
   deployment overhead.
 - **Descriptive User-Agent** — per the OSRS Wiki API acceptable-use policy, all requests
   send an identifying User-Agent (generic agents are blocked).
+- **Grain & source** — Silver sourced from /5m, keyed on (item_id, window_timestamp); see docs/grain-decision.md
 
 ## Project Status
 
 - [x] Architecture & data-flow design
-- [ ] Source API analysis + fact-table grain decision
+- [x] Source API analysis + fact-table grain decision
 - [ ] Bronze ingestion (raw, append-only)
 - [ ] Silver (dedup, quality checks, DLQ + quarantine)
 - [ ] Gold (dbt models + flip-opportunity metrics)
