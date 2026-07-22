@@ -62,7 +62,7 @@ flowchart LR
 - [x] Architecture & data-flow design
 - [x] Source API analysis + fact-table grain decision
 - [x] Bronze ingestion (raw, append-only)
-- [ ] Silver (dedup, quality checks, DLQ + quarantine)
+- [x] Silver (dedup, quality checks, DLQ)
 - [ ] Gold (dbt models + flip-opportunity metrics)
 - [ ] Airflow DAG orchestration
 - [ ] Streamlit dashboard (ranked flip recommendations + anomaly detection)
