@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: silver
+    catalog: osrs_pipeline
+    schema: silver
+    tables:
+      - name: silver_prices
+      - name: dim_items

@@ -22,3 +22,8 @@ raw/
 .DS_Store
 .vscode/
 .idea/
+
+# dbt
+logs/
+target/
+dbt_packages/
