@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: flip_opportunities
+    description: "Items traded in 5 minute windows, their avg high and low prices, volumes at high and low prices, potential profit and buy limit. This is used to identify items that can be flipped for profit."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - item_id
+              - time_window
+    columns:
+      - name: item_id
+        description: "The item ID from the API response. String to match the fact table's join key."
+        tests: 
+          - not_null
+      - name: time_window
+        description: "The 5 minute time window for which the prices are aggregated in UTC timestamp."
+        tests:
+          - not_null
+      - name: avg_high_price
+        description: "The average high price of the item in the 5 minute window."
+      - name: avg_low_price
+        description: "The average low price of the item in the 5 minute window."
+      - name: high_price_volume
+        description: "The amount of the item traded at the high price in the 5 minute window."
+        tests: 
+          - not_null
+      - name: low_price_volume
+        description: "The amount of the item traded at the low price in the 5 minute window."
+        tests: 
+          - not_null
+      - name: profit_per_item
+        description: "The (avg_high_price *0.98) - avg_low_price. This is the profit per item if you were to buy at the avg low price and sell at the avg high price, accounting for the 2% tax on the sale."
+      - name: profit_per_item_pct
+        description: "Net profit (after tax, same as profit_per_item) in percentage, rounded to 2 decimal places. ie: How much profit you would make relative to the buy price."
+      - name: buy_limit
+        description: "How much of the item you can buy within a 4-hour window. Nulls in this column indicate unknown buy limits."
+      - name: total_profit_per_cycle
+        description: "The total profit you would make from flipping x numbers of the item within the 4-hour window where x represents the buy limit. Nulls in the buy_limit columns will result in nulls in this column."
+      - name: is_complete
+        description: "A boolean indicating whether both a high price and a low price were recorded in the associated 5 minute window."
+        tests: 
+          - not_null
