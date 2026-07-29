@@ -28,4 +28,4 @@ clean-targets:         # directories to be removed by `dbt clean`
 
 models:
   osrs_pipeline:
-    +materialized: table
+    +materialized: view 
