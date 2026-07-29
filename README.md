@@ -22,14 +22,14 @@ flowchart LR
     API["OSRS Wiki Prices API<br/>/5m · /mapping"] --> B["Bronze<br/>raw JSON, one file per window"]
     B --> S["Silver<br/>flattened · quality-routed<br/>idempotent MERGE"]
     B --> DIM["dim_items<br/>item names · buy limits"]
-    S --> G["Gold<br/>dbt models · flip metrics"]
+    S --> G["Gold<br/>dbt view · flip metrics"]
     DIM --> G
     G --> D["Streamlit dashboard<br/>ranked flip opportunities"]
     S -. contract violations .-> DLQ[("Dead-letter queue")]
 ```
 
-Orchestrated by Airflow as a four-task DAG: fetch the latest `/5m` window → run the Silver
-transformation as a Databricks job → `dbt run` → `dbt test`.
+Orchestrated by Airflow: a two-task ingestion DAG (fetch the latest `/5m` window → run the
+Silver transformation as a Databricks job), with dbt tests on a separate daily schedule.
 
 ## Tech Stack
 
@@ -71,6 +71,13 @@ transformation as a Databricks job → `dbt run` → `dbt test`.
 - **Flip-opportunity model** — the Gold layer computes net margin from instabuy/instasell
   prices after the 2% Grand Exchange sell tax, surfaces both absolute and percentage return,
   and caps realistic profit by each item's buy limit.
+- **Gold is a view, not a table** — `flip_opportunities` is materialized as a view, so it
+  always reflects current Silver data without rebuilding a gold table every time. This keeps the ingestion path off
+  the SQL warehouse entirely: a warehouse queried every few minutes never reaches its idle
+  timeout, so scheduling `dbt run` on the fast path would mean continuous warehouse
+  uptime to transform a few thousand rows. At this data size a view performs identically to a
+  table, so the freshness and the decoupling have no meaningful tradeoff at this scale. `dbt run` executes only when model
+  definitions change; tests run on their own daily schedule.
 - **Airflow orchestrates, Databricks executes** — ingestion runs as plain Python in Airflow
   (an HTTP request doesn't need a Spark cluster), while the Silver transformation is triggered
   as a Databricks job. Task ordering is load-bearing: Silver must not read before the new
@@ -85,11 +92,11 @@ transformation as a Databricks job → `dbt run` → `dbt test`.
 - [x] Bronze ingestion (raw, append-only, one file per window)
 - [x] Silver (flatten, quality routing, DLQ, idempotent MERGE)
 - [x] Item dimension (`dim_items` from `/mapping`)
-- [x] Gold (dbt model + flip-opportunity metrics)
-- [x] dbt tests (grain uniqueness + null constraints)
+- [x] Gold (dbt view + flip-opportunity metrics)
+- [x] dbt tests (grain uniqueness + null constraints, on a daily schedule)
 - [x] Automated Bronze landing to Databricks Volumes via the Databricks SDK
-- [x] Airflow DAG orchestration (Dockerized, four tasks)
-- [ ] Scheduled runs (DAG currently triggered manually)
+- [x] Airflow DAG orchestration (Dockerized)
+- [ ] Scheduled ingestion runs (DAG currently triggered manually)
 - [ ] Streamlit dashboard (ranked flip recommendations)
 - [ ] GitHub Actions CI/CD
 
@@ -100,7 +107,7 @@ transformation as a Databricks job → `dbt run` → `dbt test`.
 ├── bronze/      # API ingestion scripts (/5m windows, /mapping snapshot)
 ├── silver/      # Flatten + quality routing notebook, item dimension notebook
 ├── dbt/         # Gold layer — dbt models and tests
-├── airflow/     # DAG + Dockerized Airflow (docker-compose)
+├── airflow/     # DAGs + Dockerized Airflow (docker-compose)
 ├── docs/        # Design notes, grain decision
 └── README.md
 ```
