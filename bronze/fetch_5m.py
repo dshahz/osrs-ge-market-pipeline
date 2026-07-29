@@ -1,6 +1,12 @@
 import requests
-import os
 import json
+import io
+from databricks.sdk import WorkspaceClient
+from dotenv import load_dotenv
+
+
+# Load environment variables from .env file
+load_dotenv()
 
 # API endpoints
 url_5m = "https://prices.runescape.wiki/api/v1/osrs/5m"
@@ -9,7 +15,7 @@ url_5m = "https://prices.runescape.wiki/api/v1/osrs/5m"
 HEADERS = {"User-Agent": "Flipping recommendations - Data Engineering Practice @xfprodigy on Discord"}
 
 #Directory to store the data
-BRONZE_DIR = "data/bronze/"
+VOLUME_PATH = "/Volumes/osrs_pipeline/bronze/data_raw"
 
 
 
@@ -30,13 +36,15 @@ def fetch_endpoint(url, headers, params=None, timeout=10):
 def write_bronze(response):
     if response is None:
         raise ValueError("No response to write — fetch likely failed")
+    # read DATABRICKS_HOST and DATABRICKS_TOKEN from env
+    w = WorkspaceClient()
+
     filename = response.get('timestamp')
-    os.makedirs(BRONZE_DIR, exist_ok=True)  # Create the bronze directory if it doesn't exist
-    full_path = f"{BRONZE_DIR}{filename}.json"
-    with open(full_path, "w") as f:
-        json.dump(response, f, indent=2)
+    full_path = f"{VOLUME_PATH}/{filename}.json"
+    file_contents = io.BytesIO(json.dumps(response).encode('utf-8'))
+    w.files.upload(full_path, file_contents, overwrite=True)
     print(f"Data saved to {full_path}")
     return full_path
 
 if __name__ == "__main__":
-    write_bronze(fetch_endpoint(url_5m, headers=HEADERS))
+    write_bronze(fetch_endpoint(url_5m, params = {"timestamp": 1785269100}, headers=HEADERS))

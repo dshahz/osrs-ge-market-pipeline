@@ -28,13 +28,16 @@ flowchart LR
     S -. contract violations .-> DLQ[("Dead-letter queue")]
 ```
 
+Orchestrated by Airflow as a four-task DAG: fetch the latest `/5m` window → run the Silver
+transformation as a Databricks job → `dbt run` → `dbt test`.
+
 ## Tech Stack
 
 | Concern | Tooling |
 |---|---|
 | Compute / storage | Databricks (Spark), Delta Lake, Unity Catalog |
 | Transformation | dbt Core (dbt-databricks) |
-| Orchestration | Apache Airflow (Dockerized) — *not yet built* |
+| Orchestration | Apache Airflow 3 (Dockerized) |
 | Serving | Streamlit — *not yet built* |
 | Source | OSRS Wiki Real-time Prices API |
 | Language | Python (PySpark), SQL |
@@ -68,6 +71,10 @@ flowchart LR
 - **Flip-opportunity model** — the Gold layer computes net margin from instabuy/instasell
   prices after the 2% Grand Exchange sell tax, surfaces both absolute and percentage return,
   and caps realistic profit by each item's buy limit.
+- **Airflow orchestrates, Databricks executes** — ingestion runs as plain Python in Airflow
+  (an HTTP request doesn't need a Spark cluster), while the Silver transformation is triggered
+  as a Databricks job. Task ordering is load-bearing: Silver must not read before the new
+  Bronze file lands, or it silently reprocesses stale windows.
 - **Descriptive User-Agent** — per the OSRS Wiki API acceptable-use policy, all requests send
   an identifying User-Agent (generic agents are blocked).
 
@@ -79,9 +86,10 @@ flowchart LR
 - [x] Silver (flatten, quality routing, DLQ, idempotent MERGE)
 - [x] Item dimension (`dim_items` from `/mapping`)
 - [x] Gold (dbt model + flip-opportunity metrics)
-- [ ] dbt tests
-- [ ] Automated Bronze → cloud storage landing (currently manual upload)
-- [ ] Airflow DAG orchestration
+- [x] dbt tests (grain uniqueness + null constraints)
+- [x] Automated Bronze landing to Databricks Volumes via the Databricks SDK
+- [x] Airflow DAG orchestration (Dockerized, four tasks)
+- [ ] Scheduled runs (DAG currently triggered manually)
 - [ ] Streamlit dashboard (ranked flip recommendations)
 - [ ] GitHub Actions CI/CD
 
@@ -92,22 +100,33 @@ flowchart LR
 ├── bronze/      # API ingestion scripts (/5m windows, /mapping snapshot)
 ├── silver/      # Flatten + quality routing notebook, item dimension notebook
 ├── dbt/         # Gold layer — dbt models and tests
-├── airflow/     # DAGs + Dockerized Airflow (not yet built)
+├── airflow/     # DAG + Dockerized Airflow (docker-compose)
 ├── docs/        # Design notes, grain decision
 └── README.md
 ```
 
 ## Known Gaps
 
-- **Bronze landing is manual.** The ingestion scripts write raw JSON locally; files are
-  currently uploaded to Databricks Volumes by hand. Closing this seam is a prerequisite for
-  scheduled runs.
+Data and modelling limitations I'm aware of and have chosen not to solve:
+
 - **Type corruption is indistinguishable from valid nulls.** A malformed price coerces to
   null on schema-on-read, which is the same signal as "no trade this side." Catching it would
   require validating raw payload types at Bronze.
 - **Null buy limits.** `/mapping` returns null limits for some items; this appears to mean
   undocumented rather than unlimited, so it is left null and propagates as null downstream
   rather than being substituted.
+
+## Hardening Backlog
+
+Deliberate shortcuts taken to reach a working end-to-end pipeline, to be replaced:
+
+- **Container dependencies install at startup** via `_PIP_ADDITIONAL_REQUIREMENTS`, which the
+  Airflow compose file flags as quick-check-only. It reinstalls on every container start and
+  pins no versions — drift between local and container has already caused one bug. Replacing
+  it with a Dockerfile extending the Airflow image, with pinned versions, is the fix.
+- **Connection config is spread across local env files and an Airflow Connection.**
+  Consolidating on Airflow Connections as the single in-container source would remove the
+  duplication; a secrets backend would be the production answer.
 
 ## Future Scope
 
