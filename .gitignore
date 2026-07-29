@@ -27,3 +27,7 @@ raw/
 logs/
 target/
 dbt_packages/
+.user.yml
+
+# airflow
+airflow/config/
