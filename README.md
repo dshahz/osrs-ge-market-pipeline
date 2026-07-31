@@ -11,7 +11,7 @@
 The OSRS Grand Exchange is a live, player-driven market whose prices come from real
 completed trades. This project polls that market on a schedule and lands it through a
 Bronze → Silver → Gold medallion architecture, then surfaces **flip opportunities
-(profitable buy/sell spreads ranked by margin, volume, and buy limit) through an analytics
+(profitable buy/sell spreads ranked by margin, volume, and buy limit) through a Streamlit
 dashboard.** It treats a game economy as a real data source to exercise end-to-end
 data-engineering patterns.
 
@@ -28,8 +28,9 @@ flowchart LR
     S -. contract violations .-> DLQ[("Dead-letter queue")]
 ```
 
-Orchestrated by Airflow: a two-task ingestion DAG (fetch the latest `/5m` window → run the
-Silver transformation as a Databricks job), with dbt tests on a separate daily schedule.
+Orchestrated by Airflow on a 5-minute schedule: a two-task ingestion DAG (fetch the window
+for this interval → run the Silver transformation as a Databricks job), with dbt tests on a
+separate daily schedule.
 
 ## Tech Stack
 
@@ -38,7 +39,7 @@ Silver transformation as a Databricks job), with dbt tests on a separate daily s
 | Compute / storage | Databricks (Spark), Delta Lake, Unity Catalog |
 | Transformation | dbt Core (dbt-databricks) |
 | Orchestration | Apache Airflow 3 (Dockerized) |
-| Serving | Streamlit — *not yet built* |
+| Serving | Streamlit |
 | Source | OSRS Wiki Real-time Prices API |
 | Language | Python (PySpark), SQL |
 
@@ -49,6 +50,11 @@ Silver transformation as a Databricks job), with dbt tests on a separate daily s
   the pipeline ran. A closed 5-minute window is frozen, so re-fetching always yields the same
   key and data — retries and late runs can never duplicate. Also makes the pipeline
   backfill-safe: windows can load in any order.
+- **The window comes from the run's logical date, not the clock** — each DAG run derives its
+  target window from the interval it represents and requests that window explicitly. A run
+  that fires late, or is retried, or is backfilled months later still fetches the window it
+  was always meant to. Fetching "whatever is current" would have made retries silently
+  fetch the wrong data and made Airflow-native backfill impossible.
 - **Grain & source selection** — Silver is sourced from `/5m` rather than `/latest`, because
   `/5m` provides a single grid-aligned window timestamp shared across the payload, while
   `/latest` returns per-item event times scattered off any regular interval. Choosing the
@@ -72,12 +78,17 @@ Silver transformation as a Databricks job), with dbt tests on a separate daily s
   prices after the 2% Grand Exchange sell tax, surfaces both absolute and percentage return,
   and caps realistic profit by each item's buy limit.
 - **Gold is a view, not a table** — `flip_opportunities` is materialized as a view, so it
-  always reflects current Silver data without rebuilding a gold table every time. This keeps the ingestion path off
-  the SQL warehouse entirely: a warehouse queried every few minutes never reaches its idle
-  timeout, so scheduling `dbt run` on the fast path would mean continuous warehouse
-  uptime to transform a few thousand rows. At this data size a view performs identically to a
-  table, so the freshness and the decoupling have no meaningful tradeoff at this scale. `dbt run` executes only when model
-  definitions change; tests run on their own daily schedule.
+  always reflects current Silver data without rebuilding a Gold table every time. This keeps
+  the ingestion path off the SQL warehouse entirely: a warehouse queried every few minutes
+  never reaches its idle timeout, so scheduling `dbt run` on the fast path would mean
+  continuous warehouse uptime to transform a few thousand rows. At this data size a view
+  performs identically to a table, so there's no meaningful tradeoff at this scale.
+  `dbt run` executes only when model definitions change; tests run on their own daily schedule.
+- **Realistic profit is capped by volume, not just the buy limit** — the dashboard ranks by
+  margin multiplied by the *lesser* of the buy limit, the units available to buy, and the units
+  someone will buy back. A 4-hour buy limit of 8,000 is meaningless on an item that trades six
+  units in six hours, and ranking on the limit alone surfaced fantasy opportunities built on a
+  single anomalous window.
 - **Airflow orchestrates, Databricks executes** — ingestion runs as plain Python in Airflow
   (an HTTP request doesn't need a Spark cluster), while the Silver transformation is triggered
   as a Databricks job. Task ordering is load-bearing: Silver must not read before the new
@@ -96,18 +107,19 @@ Silver transformation as a Databricks job), with dbt tests on a separate daily s
 - [x] dbt tests (grain uniqueness + null constraints, on a daily schedule)
 - [x] Automated Bronze landing to Databricks Volumes via the Databricks SDK
 - [x] Airflow DAG orchestration (Dockerized)
-- [ ] Scheduled ingestion runs (DAG currently triggered manually)
-- [ ] Streamlit dashboard (ranked flip recommendations)
+- [x] Scheduled ingestion runs (every 5 minutes)
+- [x] Streamlit dashboard (ranked flip recommendations)
 - [ ] GitHub Actions CI/CD
 
 ## Repository Structure
 
 ```
 .
-├── bronze/      # API ingestion scripts (/5m windows, /mapping snapshot)
+├── bronze/      # API ingestion scripts (/5m windows, /mapping snapshot), bulk backfill
 ├── silver/      # Flatten + quality routing notebook, item dimension notebook
 ├── dbt/         # Gold layer — dbt models and tests
 ├── airflow/     # DAGs + Dockerized Airflow (docker-compose)
+├── dashboard/   # Streamlit app
 ├── docs/        # Design notes, grain decision
 └── README.md
 ```
@@ -122,6 +134,11 @@ Data and modelling limitations I'm aware of and have chosen not to solve:
 - **Null buy limits.** `/mapping` returns null limits for some items; this appears to mean
   undocumented rather than unlimited, so it is left null and propagates as null downstream
   rather than being substituted.
+- **Aggregated columns don't reconcile by hand.** In the dashboard, average prices are computed
+  across all windows while average margin is computed only across windows where both sides
+  traded. For an item with few complete windows, buy price minus sell price won't equal the
+  reported margin. This is deliberate — a margin should only be measured where both prices
+  existed at the same time — but it's surprising if you check the arithmetic.
 
 ## Hardening Backlog
 

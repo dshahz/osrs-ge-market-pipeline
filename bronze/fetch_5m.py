@@ -47,4 +47,4 @@ def write_bronze(response):
     return full_path
 
 if __name__ == "__main__":
-    write_bronze(fetch_endpoint(url_5m, params = {"timestamp": 1785269100}, headers=HEADERS))
+    write_bronze(fetch_endpoint(url_5m, headers=HEADERS))
