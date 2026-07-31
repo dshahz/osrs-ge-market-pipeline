@@ -1,0 +1,5 @@
+exclude = ["*.ipynb", ".venv"]
+line-length = 100
+
+[lint]
+select = [ "F", "I", "UP", "B"]

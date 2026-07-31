@@ -1,9 +1,9 @@
-import requests
-import json
 import io
+import json
+
+import requests
 from databricks.sdk import WorkspaceClient
 from dotenv import load_dotenv
-
 
 # Load environment variables from .env file
 load_dotenv()
