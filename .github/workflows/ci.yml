@@ -44,7 +44,7 @@ jobs:
           import pathlib, sys
           from airflow.models import DagBag
 
-          dagbag = DagBag(dag_folder="airflow/dags", include_examples=False)
+          dagbag = DagBag(dag_folder="airflow/dags")
 
           if dagbag.import_errors:
               for path, error in dagbag.import_errors.items():
