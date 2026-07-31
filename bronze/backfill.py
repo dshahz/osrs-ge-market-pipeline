@@ -8,16 +8,17 @@ of them.
 
 
 
-from fetch_5m import fetch_endpoint, write_bronze, url_5m, HEADERS
 import time
 
+from fetch_5m import HEADERS, fetch_endpoint, url_5m, write_bronze
+
 end = int(time.time()) // 300 * 300   # now, floored to a 5-min boundary
-start = end - 86400                    # 24 hours earlier
+start = end - 7200                    # 24 hours earlier
 
 for i in range(start, end, 300):
     try:
         write_bronze(fetch_endpoint(url_5m, params={"timestamp": i}, headers=HEADERS))
-    except Exception as e:
+    except Exception as e:   # noqa: BLE001
         print(f"Error at {i}: {e}")
     finally:
         time.sleep(1)
