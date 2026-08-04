@@ -4,7 +4,7 @@
 > market data and surfaces profitable flip opportunities — built with production-grade
 > patterns: idempotent ingestion, data-quality routing, and orchestrated batch loads.
 >
-> **Status: In active development** — see Project Status below.
+> **[Live dashboard](https://osrs-flipping.streamlit.app)** · **Status: In active development** — see Project Status below.
 
 ## Overview
 
@@ -150,6 +150,10 @@ Data and modelling limitations I'm aware of and have chosen not to solve:
 - **The pipeline can succeed while producing nothing.** An empty API response lands an empty
   file, Silver processes zero rows, and every task reports green. A validation that fails the
   fetch when a window comes back with no items would turn this into a loud failure.
+- **The scheduler runs locally.** Airflow runs in Docker on a development machine, so
+  ingestion pauses whenever that machine is off and the dashboard shows stale windows until
+  it resumes. The dashboard itself is hosted and always reachable. Moving Airflow to an
+  always-on host would close this; it's a deployment gap rather than a design one.
 
 ## Hardening Backlog
 
