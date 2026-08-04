@@ -7,6 +7,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def get_secret(key):
+    try:  # this try except allows the app to run locally without streamlit secrets, but still use them in deployment
+        return st.secrets[key]
+    except Exception:
+        return os.getenv(key)
+
 WINDOWS_PER_HOUR = 12
 WINDOWS_PER_CYCLE = 48  # a buy limit resets every 4 hours
 
@@ -68,9 +75,9 @@ COLUMN_CONFIG = {
 @st.cache_data(ttl=300)
 def load_data(hours):
     with sql.connect(
-        server_hostname=os.getenv("DATABRICKS_HOST"),
-        http_path=os.getenv("DATABRICKS_HTTP_PATH"),
-        access_token=os.getenv("DATABRICKS_TOKEN"),
+        server_hostname=get_secret("DATABRICKS_HOST"),
+        http_path=get_secret("DATABRICKS_HTTP_PATH"),
+        access_token=get_secret("DATABRICKS_TOKEN"),
     ) as connection:
         df = pd.read_sql(
             "SELECT * FROM osrs_pipeline.gold.flip_opportunities "

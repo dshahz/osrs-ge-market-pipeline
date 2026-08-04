@@ -39,7 +39,8 @@ separate daily schedule.
 | Compute / storage | Databricks (Spark), Delta Lake, Unity Catalog |
 | Transformation | dbt Core (dbt-databricks) |
 | Orchestration | Apache Airflow 3 (Dockerized) |
-| Serving | Streamlit |
+| Serving | Streamlit (deployed on Streamlit Community Cloud) |
+| CI | GitHub Actions |
 | Source | OSRS Wiki Real-time Prices API |
 | Language | Python (PySpark), SQL |
 
@@ -93,6 +94,10 @@ separate daily schedule.
   (an HTTP request doesn't need a Spark cluster), while the Silver transformation is triggered
   as a Databricks job. Task ordering is load-bearing: Silver must not read before the new
   Bronze file lands, or it silently reprocesses stale windows.
+- **CI validates what fails silently** — GitHub Actions runs on every pull request: `ruff` for
+  linting, a `DagBag` import check so a broken DAG is caught before Airflow drops it without
+  warning, and `dbt parse` to resolve every `ref` and `source` against the models. All three
+  run without credentials, so CI costs nothing and touches no quota.
 - **Descriptive User-Agent** — per the OSRS Wiki API acceptable-use policy, all requests send
   an identifying User-Agent (generic agents are blocked).
 
@@ -109,12 +114,15 @@ separate daily schedule.
 - [x] Airflow DAG orchestration (Dockerized)
 - [x] Scheduled ingestion runs (every 5 minutes)
 - [x] Streamlit dashboard (ranked flip recommendations)
-- [ ] GitHub Actions CI/CD
+- [x] GitHub Actions CI (lint, DAG import validation, dbt parse)
+- [x] Streamlit Dashboard CD via Streamlit Community Cloud
+- [ ] Databricks job CD via Asset Bundles
 
 ## Repository Structure
 
 ```
 .
+├── .github/     # GitHub Actions CI workflow
 ├── bronze/      # API ingestion scripts (/5m windows, /mapping snapshot), bulk backfill
 ├── silver/      # Flatten + quality routing notebook, item dimension notebook
 ├── dbt/         # Gold layer — dbt models and tests
@@ -139,6 +147,9 @@ Data and modelling limitations I'm aware of and have chosen not to solve:
   traded. For an item with few complete windows, buy price minus sell price won't equal the
   reported margin. This is deliberate — a margin should only be measured where both prices
   existed at the same time — but it's surprising if you check the arithmetic.
+- **The pipeline can succeed while producing nothing.** An empty API response lands an empty
+  file, Silver processes zero rows, and every task reports green. A validation that fails the
+  fetch when a window comes back with no items would turn this into a loud failure.
 
 ## Hardening Backlog
 
