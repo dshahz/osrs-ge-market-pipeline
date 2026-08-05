@@ -1,0 +1,19 @@
+bundle:
+  name: osrs_pipeline
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-7e0ae31e-c2c9.cloud.databricks.com
+
+resources:
+  jobs:
+    silver:
+      name: silver
+
+      tasks:
+        - task_key: run_silver_flatten
+          notebook_task:
+            notebook_path: ./silver/silver_flatten.ipynb
