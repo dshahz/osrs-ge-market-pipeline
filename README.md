@@ -4,7 +4,7 @@
 > market data and surfaces profitable flip opportunities — built with production-grade
 > patterns: idempotent ingestion, data-quality routing, and orchestrated batch loads.
 >
-> **[Live dashboard](https://osrs-flipping.streamlit.app)** · **Status: In active development** — see Project Status below.
+> **[Live dashboard](https://osrs-flipping.streamlit.app)** · **Status: Feature-complete; polishing as time permits** — see Project Status below.
 
 ## Overview
 
@@ -40,7 +40,7 @@ separate daily schedule.
 | Transformation | dbt Core (dbt-databricks) |
 | Orchestration | Apache Airflow 3 (Dockerized) |
 | Serving | Streamlit (deployed on Streamlit Community Cloud) |
-| CI | GitHub Actions |
+| CI/CD | GitHub Actions, Databricks Asset Bundles |
 | Source | OSRS Wiki Real-time Prices API |
 | Language | Python (PySpark), SQL |
 
@@ -98,6 +98,12 @@ separate daily schedule.
   linting, a `DagBag` import check so a broken DAG is caught before Airflow drops it without
   warning, and `dbt parse` to resolve every `ref` and `source` against the models. All three
   run without credentials, so CI costs nothing and touches no quota.
+- **The Databricks job is defined as code and deployed on merge** — the job and its notebook
+  live in a Databricks Asset Bundle in this repo, and a GitHub Actions workflow runs
+  `databricks bundle deploy` when changes land on main. Before this, the job existed only as
+  UI configuration in the workspace and the notebook was synced by hand through a Git folder —
+  two copies with no single source of truth, which drifted in practice. The bundle makes the
+  repo authoritative and removes the manual step between merging and shipping.
 - **Descriptive User-Agent** — per the OSRS Wiki API acceptable-use policy, all requests send
   an identifying User-Agent (generic agents are blocked).
 
@@ -116,7 +122,7 @@ separate daily schedule.
 - [x] Streamlit dashboard (ranked flip recommendations)
 - [x] GitHub Actions CI (lint, DAG import validation, dbt parse)
 - [x] Streamlit Dashboard CD via Streamlit Community Cloud
-- [ ] Databricks job CD via Asset Bundles
+- [x] Databricks job CD via Asset Bundles
 
 ## Repository Structure
 
