@@ -1,6 +1,6 @@
 """Fetch a single /5m price window and land it in Bronze."""
 
-from bronze.common import HEADERS, fetch_endpoint, write_json
+from bronze.common import fetch_endpoint, write_json
 
 url_5m = "https://prices.runescape.wiki/api/v1/osrs/5m"
 VOLUME_PATH = "/Volumes/osrs_pipeline/bronze/data_raw"

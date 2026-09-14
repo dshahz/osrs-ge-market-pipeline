@@ -27,7 +27,8 @@ def osrs_pipeline():
 
     @task
     def fetch_5m_window(logical_date=None):
-        from bronze.fetch_5m import HEADERS, fetch_endpoint, url_5m, write_bronze
+        from bronze.common import fetch_endpoint
+        from bronze.fetch_5m import url_5m, write_bronze
 
         # Derive the target window from the interval this run represents, not from
         # wall-clock time. A retried or backfilled run therefore fetches the same
@@ -42,7 +43,7 @@ def osrs_pipeline():
         )
 
         response = fetch_endpoint(
-            url_5m, headers=HEADERS, params={"timestamp": window_ts}
+            url_5m, params={"timestamp": window_ts}
         )
         return write_bronze(response)
 
