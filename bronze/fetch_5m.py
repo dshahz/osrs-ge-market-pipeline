@@ -36,6 +36,10 @@ def fetch_endpoint(url, headers, params=None, timeout=10):
 def write_bronze(response):
     if response is None:
         raise ValueError("No response to write — fetch likely failed")
+    if not response.get("data"):
+        raise ValueError(
+            f"Empty window: API returned no items for timestamp {response.get('timestamp')}"
+        )
     # read DATABRICKS_HOST and DATABRICKS_TOKEN from env
     w = WorkspaceClient()
 
