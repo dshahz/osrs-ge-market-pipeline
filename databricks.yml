@@ -17,3 +17,9 @@ resources:
         - task_key: run_silver_flatten
           notebook_task:
             notebook_path: ./silver/silver_flatten.ipynb
+
+        - task_key: validate_silver
+          depends_on:
+            - task_key: run_silver_flatten
+          notebook_task:
+            notebook_path: ./silver/silver_validate.ipynb

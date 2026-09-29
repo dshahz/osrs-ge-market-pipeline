@@ -26,11 +26,12 @@ flowchart LR
     DIM --> G
     G --> D["Streamlit dashboard<br/>ranked flip opportunities"]
     S -. contract violations .-> DLQ[("Dead-letter queue")]
+    S -. validated by .-> GX[("Great Expectations<br/>dq_results")]
 ```
 
 Orchestrated by Airflow on a 5-minute schedule: a two-task ingestion DAG (fetch the window
-for this interval → run the Silver transformation as a Databricks job), with dbt tests on a
-separate daily schedule.
+for this interval → run the Silver job, which flattens the window and then validates the table
+with a Great Expectations suite), with dbt tests on a separate daily schedule.
 
 ## Tech Stack
 
@@ -38,6 +39,7 @@ separate daily schedule.
 |---|---|
 | Compute / storage | Databricks (Spark), Delta Lake, Unity Catalog |
 | Transformation | dbt Core (dbt-databricks) |
+| Data quality | Great Expectations (GX Core), dbt tests |
 | Orchestration | Apache Airflow 3 (Dockerized) |
 | Serving | Streamlit (deployed on Streamlit Community Cloud) |
 | CI/CD | GitHub Actions, Databricks Asset Bundles |
@@ -69,6 +71,11 @@ separate daily schedule.
   non-positive price) route to a **dead-letter queue**; valid-but-empty rows are filtered;
   everything else continues. A *null price* is valid — it means no trade on that side that
   window — so it is never dead-lettered.
+- **Two layers of Silver validation** — the flatten notebook routes bad rows to the DLQ, then a
+  separate Great Expectations task validates the whole `silver_prices` table: grain uniqueness,
+  the DLQ contract rules, schema, and derived-column consistency. Critical failures fail the job
+  (and the Airflow task); warnings, like item IDs missing from `dim_items`, are recorded without
+  blocking. Every result is appended to `silver.dq_results` for a queryable quality history.
 - **Sparse by design** — untraded items are absent from `/5m` entirely, so the fact table has
   rows only where trading occurred. Absence is the record of a non-event.
 - **Star schema** — item names and buy limits come from `/mapping`, a separate source at a
@@ -113,6 +120,7 @@ separate daily schedule.
 - [x] Source API analysis + fact-table grain decision
 - [x] Bronze ingestion (raw, append-only, one file per window)
 - [x] Silver (flatten, quality routing, DLQ, idempotent MERGE)
+- [x] Great Expectations suite on Silver (critical/warning severity, results to `dq_results`)
 - [x] Item dimension (`dim_items` from `/mapping`)
 - [x] Gold (dbt view + flip-opportunity metrics)
 - [x] dbt tests (grain uniqueness + null constraints, on a daily schedule)
@@ -130,7 +138,7 @@ separate daily schedule.
 .
 ├── .github/     # GitHub Actions CI workflow
 ├── bronze/      # API ingestion scripts (/5m windows, /mapping snapshot), bulk backfill
-├── silver/      # Flatten + quality routing notebook, item dimension notebook
+├── silver/      # Flatten + quality routing, Great Expectations validation, item dimension
 ├── dbt/         # Gold layer — dbt models and tests
 ├── airflow/     # DAGs + Dockerized Airflow (docker-compose)
 ├── dashboard/   # Streamlit app
