@@ -1,11 +1,21 @@
+import logging
 import os
+import time
 
-import pandas as pd
 import streamlit as st
-from databricks import sql
 from dotenv import load_dotenv
+from market_data import TIME_RANGES, LiveDataUnavailable, aggregate, load_snapshot, query_gold
 
 load_dotenv()
+
+logger = logging.getLogger("osrs_dashboard")
+
+REPO_URL = "https://github.com/dshahz/osrs-ge-market-pipeline"
+
+# After a failed connection, skip live queries for this long and serve the
+# snapshot. Each time range is its own cache entry, so without this every click
+# on the selector would sit through another failed connection attempt.
+BREAKER_COOLDOWN_SECONDS = 300
 
 
 def get_secret(key):
@@ -13,9 +23,6 @@ def get_secret(key):
         return st.secrets[key]
     except Exception:
         return os.getenv(key)
-
-WINDOWS_PER_HOUR = 12
-WINDOWS_PER_CYCLE = 48  # a buy limit resets every 4 hours
 
 DISPLAY_COLUMNS = [
     "item_name",
@@ -72,81 +79,86 @@ COLUMN_CONFIG = {
 }
 
 
-@st.cache_data(ttl=300)
-def load_data(hours):
-    with sql.connect(
-        server_hostname=get_secret("DATABRICKS_HOST"),
+@st.cache_data(ttl=300, show_spinner="Loading live market data…")
+def load_live(hours):
+    rows = query_gold(
+        hours,
+        host=get_secret("DATABRICKS_HOST"),
         http_path=get_secret("DATABRICKS_HTTP_PATH"),
-        access_token=get_secret("DATABRICKS_TOKEN"),
-    ) as connection:
-        df = pd.read_sql(
-            "SELECT * FROM osrs_pipeline.gold.flip_opportunities "
-            f"WHERE time_window >= (current_timestamp() - INTERVAL {hours} HOURS)",
-            connection,
-        )
+        token=get_secret("DATABRICKS_TOKEN"),
+    )
+    return aggregate(rows, hours)
 
-    if df.empty:
-        return pd.DataFrame(columns=DISPLAY_COLUMNS)
 
-    all_agg = df.groupby("item_id").agg({
-        "item_name": "first",
-        "high_price_volume": "sum",
-        "low_price_volume": "sum",
-        "avg_high_price": "mean",
-        "avg_low_price": "mean",
-        "buy_limit": "first",
-    })
+@st.cache_data(show_spinner=False)
+def cached_snapshot():
+    # The file only changes on a new commit, which redeploys the app anyway.
+    return load_snapshot()
 
-    complete = df[df["is_complete"]]
-    complete_agg = complete.groupby("item_id").agg({
-        "profit_per_item": "mean",
-        "profit_per_item_pct": "mean",
-    })
 
-    result = all_agg.join(complete_agg)
-    result["windows_complete"] = complete.groupby("item_id").size()
-    result["windows_total"] = df.groupby("item_id").size()
-    result["windows_complete"] = result["windows_complete"].fillna(0)
+@st.cache_resource
+def live_breaker():
+    # Shared across every visitor's session, unlike st.session_state.
+    return {"open_until": 0.0}
 
-    # Nullable float so a missing buy limit renders blank rather than "None".
-    result["buy_limit"] = result["buy_limit"].astype("Float64")
 
-    # Theoretical ceiling: the full buy limit at the average margin.
-    result["total_profit_per_cycle"] = result["profit_per_item"] * result["buy_limit"]
+def get_data(hours):
+    """Return (data, snapshot_at). snapshot_at is None when the data is live.
 
-    # Realistic quantity is capped by whichever binds first: the buy limit,
-    # the units available to buy, or the units someone will buy from you.
-    windows_in_range = hours * WINDOWS_PER_HOUR
-    high_vol_per_cycle = result["high_price_volume"] / windows_in_range * WINDOWS_PER_CYCLE
-    low_vol_per_cycle = result["low_price_volume"] / windows_in_range * WINDOWS_PER_CYCLE
+    Falls back to the committed snapshot when the warehouse is unreachable, and
+    returns (None, None) if there is no snapshot to fall back to.
+    """
+    breaker = live_breaker()
+    if time.monotonic() >= breaker["open_until"]:
+        try:
+            return load_live(hours), None
+        except LiveDataUnavailable:
+            logger.exception("Live data unavailable; serving snapshot")
+            breaker["open_until"] = time.monotonic() + BREAKER_COOLDOWN_SECONDS
 
-    result["realistic_qty"] = pd.concat(
-        [result["buy_limit"], high_vol_per_cycle, low_vol_per_cycle], axis=1
-    ).min(axis=1)
-    result["realistic_profit_per_cycle"] = result["profit_per_item"] * result["realistic_qty"]
-
-    return result.sort_values("realistic_profit_per_cycle", ascending=False)
+    snapshot = cached_snapshot()
+    if snapshot is None:
+        return None, None
+    rows = snapshot[snapshot["hours"] == hours]
+    return rows, snapshot["snapshot_at"].iloc[0]
 
 
 st.set_page_config(page_title="OSRS Flip Opportunities", layout="wide")
 st.title("OSRS Flip Opportunities")
 
-hours = st.selectbox("Time range", [1, 3, 6, 12, 24], index=2)
-data = load_data(hours)
+hours = st.selectbox("Time range", TIME_RANGES, index=2)
+data, snapshot_at = get_data(hours)
+
+if data is None:
+    st.info(
+        "Live market data is temporarily unavailable. Please check back soon. In the "
+        f"meantime, the pipeline's architecture and design decisions are on [GitHub]({REPO_URL})."
+    )
+    st.stop()
+
+if snapshot_at is None:
+    period = f"the last {hours}h"
+else:
+    ts = snapshot_at
+    st.info(
+        "Live data from Databricks is temporarily unavailable, so you're viewing a snapshot "
+        f"taken {ts:%b} {ts.day}, {ts:%Y} at {ts:%H:%M} UTC."
+    )
+    period = f"the {hours}h before the snapshot"
 
 if data.empty:
     st.warning(
-        f"No market data in the last {hours}h. The pipeline may not have run recently — "
+        f"No market data in {period}. The pipeline may not have run recently — "
         "try a longer range."
     )
 else:
     st.caption(
-        f"{len(data):,} items traded in the last {hours}h. "
+        f"{len(data):,} items traded in {period}. "
         "Sorted by realistic profit per 4-hour buy cycle."
     )
     st.dataframe(
         data[DISPLAY_COLUMNS],
         column_config=COLUMN_CONFIG,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )

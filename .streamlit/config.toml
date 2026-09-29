@@ -1,0 +1,4 @@
+[client]
+# Never show tracebacks to visitors. Full errors still go to the app logs
+# (Manage app → Logs on Streamlit Community Cloud).
+showErrorDetails = "none"
