@@ -12,6 +12,10 @@ resources:
   jobs:
     silver:
       name: silver
+      # Guards on the Databricks side, independent of Airflow: never more than
+      # one Silver run at a time, and no run lives longer than 30 minutes.
+      max_concurrent_runs: 1
+      timeout_seconds: 1800
 
       tasks:
         - task_key: run_silver_flatten
