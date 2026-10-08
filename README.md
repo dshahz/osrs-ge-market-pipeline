@@ -28,9 +28,9 @@ flowchart LR
     S -. contract violations .-> DLQ[("Dead-letter queue")]
 ```
 
-Orchestrated by Airflow on a 5-minute schedule: a two-task ingestion DAG (fetch the window
-for this interval → run the Silver transformation as a Databricks job), with dbt tests on a
-separate daily schedule.
+Orchestrated by Airflow as three independent DAGs: `osrs_ingest` fetches each 5-minute
+window into Bronze every 5 minutes, `osrs_silver` runs the Silver transformation as a
+Databricks job once an hour, and `dbt_tests` runs daily.
 
 ## Tech Stack
 
@@ -92,8 +92,17 @@ separate daily schedule.
   single anomalous window.
 - **Airflow orchestrates, Databricks executes** — ingestion runs as plain Python in Airflow
   (an HTTP request doesn't need a Spark cluster), while the Silver transformation is triggered
-  as a Databricks job. Task ordering is load-bearing: Silver must not read before the new
-  Bronze file lands, or it silently reprocesses stale windows.
+  as a Databricks job.
+- **Ingestion and transformation run on different cadences** — Silver originally ran right
+  after every 5-minute fetch. Each Databricks job run pays serverless startup on top of the
+  work, so that was up to 288 job runs a day, and it exhausted the Free Edition quota:
+  Databricks began rejecting new runs with `FEATURE_DISABLED`. Ingestion never touches
+  Databricks compute (it uploads a file through the Files API), so it stays on the 5-minute
+  schedule, while Silver now batches the hour's 12 windows into one run, 24 a day. The two
+  DAGs need no dependency between them: Silver reads all of Bronze and MERGEs on the window
+  key, so a window that lands mid-run is simply picked up the next hour. Silver also has no
+  retries (retrying into a quota block only spends more quota) and a 30-minute timeout in
+  both Airflow and the job definition, so a hung run can't keep burning compute.
 - **CI validates what fails silently** — GitHub Actions runs on every pull request: `ruff` for
   linting, a `DagBag` import check so a broken DAG is caught before Airflow drops it without
   warning, and `dbt parse` to resolve every `ref` and `source` against the models. All three
@@ -118,7 +127,7 @@ separate daily schedule.
 - [x] dbt tests (grain uniqueness + null constraints, on a daily schedule)
 - [x] Automated Bronze landing to Databricks Volumes via the Databricks SDK
 - [x] Airflow DAG orchestration (Dockerized)
-- [x] Scheduled ingestion runs (every 5 minutes)
+- [x] Scheduled ingestion runs (Bronze every 5 minutes, Silver hourly)
 - [x] Streamlit dashboard (ranked flip recommendations)
 - [x] GitHub Actions CI (lint, DAG import validation, dbt parse)
 - [x] Streamlit Dashboard CD via Streamlit Community Cloud

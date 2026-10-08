@@ -1,9 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from airflow.providers.databricks.operators.databricks import DatabricksRunNowOperator
 from airflow.sdk import dag, task
 
-SILVER_JOB_ID = "420996649616998"
 WINDOW_SECONDS = 300
 # Number of windows to look back. One window is not enough: the window that
 # closes at the run's own logical date has had no time to be aggregated and
@@ -17,13 +15,22 @@ WINDOW_LAG = 2
     schedule="*/5 * * * *",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     catchup=False,
-    # Without this Airflow allows 16 concurrent runs. If one run hangs, the
-    # scheduler keeps firing new ones every 5 minutes and each triggers another
-    # Databricks job, which is how a single stuck run turned into an account-level
-    # rate limit. One run at a time; late runs queue rather than pile up.
+    # Ingestion only lands a file in a Unity Catalog volume through the Files
+    # API. It never starts Databricks compute, so running it every 5 minutes
+    # costs nothing against the Free Edition quota. Silver runs on its own,
+    # slower schedule in osrs_silver.py.
     max_active_runs=1,
+    default_args={
+        # The window is derived from the logical date, so a retry re-requests
+        # the exact same frozen window. Retrying is safe and covers the API's
+        # occasional blips and a window that hasn't been published yet.
+        "retries": 2,
+        "retry_delay": timedelta(minutes=1),
+        "execution_timeout": timedelta(minutes=2),
+    },
+    tags=["osrs", "bronze"],
 )
-def osrs_pipeline():
+def osrs_ingest():
 
     @task
     def fetch_5m_window(logical_date=None):
@@ -47,13 +54,7 @@ def osrs_pipeline():
         )
         return write_bronze(response)
 
-    run_silver = DatabricksRunNowOperator(
-        task_id="run_silver",
-        databricks_conn_id="databricks_default",
-        job_id=SILVER_JOB_ID,
-    )
-
-    fetch_5m_window() >> run_silver
+    fetch_5m_window()
 
 
-osrs_pipeline()
+osrs_ingest()
